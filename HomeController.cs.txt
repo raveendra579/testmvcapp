@@ -1,0 +1,97 @@
+﻿//see https://docs.microsoft.com/en-us/azure/storage/files/storage-dotnet-how-to-use-files
+using Azure.Core;
+using Azure.Identity;
+using Microsoft.Azure; // Namespace for Azure Configuration Manager
+using Microsoft.Azure.Storage; // Namespace for Storage Client Library
+using Microsoft.Azure.Storage.Auth;
+using Microsoft.Azure.Storage.File; // Namespace for Azure Files
+using Microsoft.Identity.Client;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IdentityModel.Tokens;
+using System.IO;
+using System.Threading.Tasks;
+using System.Web.Mvc;
+
+
+namespace Azure.Filestorage.MVCApp.Demo.Controllers
+{
+    [Route("api/[controller]")]
+    public class HomeController : Controller
+    {
+        public ActionResult Index()
+        {
+            return View();
+        }
+
+        /// <summary>
+        /// Method to process all the files selected
+        /// </summary>
+        [HttpPost]
+        public ActionResult UploadFile()
+        {
+            for (int i = 0; i < Request.Files.Count; i++)
+            {
+                Stream inputstream = Request.Files[i].InputStream;
+                if (inputstream.Length > 0)
+                {
+                    string filename = Request.Files[i].FileName;
+                    CopyToFileShare(inputstream, filename);
+                }
+            }
+            return View("Index");
+        }
+     
+       
+        /// <summary>
+        /// Method to Copy file to Azure File share
+        /// </summary>
+        /// <param name="finputstream">source file inputstream</param>
+        /// <param name="filename">source filename</param>
+        private async Task CopyToFileShare(Stream finputstream, string filename)
+        {
+            try
+            {
+                CopytoMountPath(finputstream, filename);
+            }
+            catch (Exception ex)
+            {
+                Write(string.Format("message: {0} stacktrace: {1}",ex.Message,ex.StackTrace));
+            }
+        }
+
+        private void CopytoMountPath(Stream finputstream, string filename)
+        {
+            try
+            {
+                var mountPath = System.Configuration.ConfigurationManager.AppSettings["mountPath"];
+                string path = Path.Combine(mountPath,  filename);
+                Console.WriteLine(path);
+                using (FileStream outputFileStream = new FileStream(path, FileMode.Create))
+                {
+                    finputstream.CopyTo(outputFileStream);
+                }
+            }catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                Write(string.Format("message: {0} stacktrace: {1}", ex.Message, ex.StackTrace));
+                throw ex;
+            }
+        }
+
+        /// <summary>
+        /// Method to write to Eventlog
+        /// </summary>
+        /// <param name="message">The event message</param>
+        private void Write(string message)
+        {
+            using (EventLog eventLog = new EventLog("Application"))
+            {
+                eventLog.Source = "Application";
+                eventLog.WriteEntry(message, EventLogEntryType.Error, 101, 1);
+            }
+        }
+    }
+}
