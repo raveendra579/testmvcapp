@@ -1,6 +1,8 @@
-﻿//see https://docs.microsoft.com/en-us/azure/storage/files/storage-dotnet-how-to-use-files
+//see https://docs.microsoft.com/en-us/azure/storage/files/storage-dotnet-how-to-use-files
 using Azure.Core;
 using Azure.Identity;
+using Azure.Storage.Sas;
+using Azure.Storage;
 using Microsoft.Azure; // Namespace for Azure Configuration Manager
 using Microsoft.Azure.Storage; // Namespace for Storage Client Library
 using Microsoft.Azure.Storage.Auth;
@@ -8,21 +10,29 @@ using Microsoft.Azure.Storage.File; // Namespace for Azure Files
 using Microsoft.Identity.Client;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics;
 using System.Globalization;
 using System.IdentityModel.Tokens;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Mvc;
-
+using TokenCredential = Azure.Core.TokenCredential;
+using Microsoft.Azure.Storage.Blob;
+using Azure.Security.KeyVault.Secrets;
 
 namespace Azure.Filestorage.MVCApp.Demo.Controllers
 {
     [Route("api/[controller]")]
     public class HomeController : Controller
     {
-        public ActionResult Index()
+        private string tokenvalue;
+
+        public async Task<ActionResult> Index()
         {
+
+            await GetSecretFromKeyVault();
             return View();
         }
 
@@ -38,13 +48,107 @@ namespace Azure.Filestorage.MVCApp.Demo.Controllers
                 if (inputstream.Length > 0)
                 {
                     string filename = Request.Files[i].FileName;
-                    CopyToFileShare(inputstream, filename);
+                    //CopyToFileShare(inputstream, filename);
+                    ViewBag.SuccessMessage = tokenvalue;
+                    CopyToFileShareusingMI(inputstream, filename);
                 }
             }
             return View("Index");
         }
-     
-       
+        async Task GetSecretFromKeyVault()
+        {
+            const string secretName = "mySecret";
+            var kvUri = $"https://testkv.vault.azure.net/";
+
+            var client = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
+            var secret = await client.GetSecretAsync(secretName);
+            ViewBag.SuccessMessage = secret.Value.Value;
+        }
+        async Task<StorageCredentials> GetStorageCredentials()
+        {
+            var managedIdentityCreds = new ManagedIdentityCredential();
+            TokenCredential tokenCreds = new ClientSecretCredential("872a57e6-08a5-422c-9b9e-904de6bd1605", "2b90b487-64e2-4bb5-98cb-e934fe7b86b4", "FpE8Q~w0OS~dxv7tZh59iF-I90x~C9V_bf6WCaOp");
+            CancellationTokenSource cts = new CancellationTokenSource();
+            CancellationToken cancelToken = cts.Token;
+            var token = managedIdentityCreds.GetToken(new TokenRequestContext(new[] { "https://storage.azure.com/.default" }),cancelToken);
+            tokenvalue = token.Token;
+            return new StorageCredentials(token.Token);
+            //return new StorageCredentials(token.Token);
+        }
+        /// <summary>
+        /// Method to Copy file to Azure File share
+        /// </summary>
+        /// <param name="finputstream">source file inputstream</param>
+        /// <param name="filename">source filename</param>
+        private async Task CopyToFileShareusingMI(Stream finputstream, string filename)
+        {
+            //try
+            //{
+            //    CloudStorageAccount storageAccount = CloudStorageAccount.Parse(
+            //    CloudConfigurationManager.GetSetting("StorageConnectionString"));
+
+            //    // Create a CloudFileClient object for credentialed access to Azure Files.
+            //    CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+
+            //    // Get a reference to the file share .
+            //    CloudFileShare share = fileClient.GetShareReference(CloudConfigurationManager.GetSetting("ShareDirectoryName"));
+
+            //    // Ensure that the share exists.
+            //    if (share.Exists())
+            //    {
+            //        // Get a reference to the root directory for the share.
+            //        CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+            //        // Get a reference to the destination file.
+            //        CloudFile destFile = rootDir.GetFileReference(filename);
+            //        // Start the copy operation.
+            //        destFile.UploadFromStream(finputstream);
+            //        finputstream.Dispose();
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    Write(string.Format("message: {0} stacktrace: {1}", ex.Message, ex.StackTrace));
+            //}
+            try
+            {
+
+                //var storageCreds = await GetStorageCredentials();
+                //CloudStorageAccount storageAccount = new CloudStorageAccount(storageCreds, "ravi143579", "core.windows.net", useHttps: true);
+                //Console.WriteLine("Storage act created");
+                //var connectionstring = GetFileSasUri(CloudConfigurationManager.GetSetting("ShareDirectoryName"), filename, DateTime.Now.AddMinutes(10), ShareFileSasPermissions.All);
+                string accountName = ConfigurationManager.AppSettings["StorageAccountName"];
+
+
+                var connectionstring = new Uri($"https://{accountName}.file.core.windows.net/{CloudConfigurationManager.GetSetting("ShareDirectoryName")}/{filename}?sv=2021-06-08&ss=f&srt=sco&sp=rwdlc&se=2023-03-01T12:09:07Z&st=2023-02-20T04:09:07Z&spr=https&sig=xbxC8IXGoKzIwVm8Q0bwXyqHhXk6%2B3fFt4I1c9zg3Lo%3D");
+                CloudFile f = new CloudFile(connectionstring);
+                f.UploadFromStream(finputstream);
+                ////CloudStorageAccount storageAccount = CloudStorageAccount.Parse(CloudConfigurationManager.GetSetting("StorageConnectionString"));
+                
+                ////// Create a CloudFileClient object for credentialed access to Azure Files.
+                ////CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+
+                ////// Get a reference to the file share .
+                ////CloudFileShare share = fileClient.GetShareReference(CloudConfigurationManager.GetSetting("ShareDirectoryName"));
+
+                ////// Ensure that the share exists.
+                ////if (share.Exists())
+                ////{
+                ////    // Get a reference to the root directory for the share.
+                ////    CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+                ////    // Get a reference to the destination file.
+                ////    CloudFile destFile = rootDir.GetFileReference(filename);
+                ////    // Start the copy operation.
+                ////    destFile.UploadFromStream(finputstream);
+                ////    finputstream.Dispose();
+                ////}
+            }
+            catch (Exception ex)
+            {
+                tokenvalue = ex.ToString();
+                Write(string.Format("message: {0} stacktrace: {1}", ex.Message, ex.StackTrace));
+            }
+        }
+
         /// <summary>
         /// Method to Copy file to Azure File share
         /// </summary>
@@ -62,6 +166,40 @@ namespace Azure.Filestorage.MVCApp.Demo.Controllers
             }
         }
 
+        //-------------------------------------------------
+        // Create a SAS URI for a file
+        //-------------------------------------------------
+        public Uri GetFileSasUri(string shareName, string filePath, DateTime expiration, ShareFileSasPermissions permissions)
+        {
+            // Get the account details from app settings
+            string accountName = ConfigurationManager.AppSettings["StorageAccountName"];
+            string accountKey = ConfigurationManager.AppSettings["StorageAccountKey"];
+
+            ShareSasBuilder fileSAS = new ShareSasBuilder()
+            {
+                ShareName = shareName,
+                FilePath = filePath,
+
+                // Specify an Azure file resource
+                Resource = "f",
+
+                // Expires in 24 hours
+                ExpiresOn = expiration
+            };
+
+            // Set the permissions for the SAS
+            fileSAS.SetPermissions(permissions);
+
+            // Create a SharedKeyCredential that we can use to sign the SAS token
+            StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
+
+            // Build a SAS URI
+            UriBuilder fileSasUri = new UriBuilder($"https://{accountName}.file.core.windows.net/{fileSAS.ShareName}/{fileSAS.FilePath}");
+            fileSasUri.Query = fileSAS.ToSasQueryParameters(credential).ToString();
+
+            // Return the URI
+            return fileSasUri.Uri;
+        }
         private void CopytoMountPath(Stream finputstream, string filename)
         {
             try
